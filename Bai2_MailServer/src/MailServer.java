@@ -233,24 +233,81 @@ public final class MailServer implements AutoCloseable {
         List<String> fields = request.fields();
         return switch (request.command()) {
             case MailProtocol.CMD_CREATE -> {
-                requireFields(fields, 1);
-                String acc = storage.createAccount(fields.get(0));
-                log("Tạo account: " + acc);
-                yield MailProtocol.ok(request.id(), List.of(acc));
+                if (fields.isEmpty()) {
+                    throw new IllegalArgumentException("Chưa nhập tài khoản.");
+                }
+                String acc = fields.get(0);
+                String pass = fields.size() >= 2 ? fields.get(1) : "";
+                String created = storage.createAccount(acc, pass);
+                log("Tạo account: " + created);
+                yield MailProtocol.ok(request.id(), List.of(created));
             }
             case MailProtocol.CMD_SEND -> {
-                requireFields(fields, 2);
+                if (fields.size() < 2) {
+                    throw new IllegalArgumentException("Thiếu người nhận hoặc nội dung email.");
+                }
                 String recipient = fields.get(0);
                 String body = fields.get(1);
-                String filename = storage.sendMail(recipient, body, request.id());
+                String senderAccount = fields.size() >= 3 ? fields.get(2) : "";
+                String senderIp = packet.getAddress().getHostAddress();
+                String filename = storage.sendMail(recipient, body, senderIp, senderAccount, request.id());
                 for (ServerObserver obs : observers) {
-                    obs.mailSent(packet.getSocketAddress().toString(), recipient, filename);
+                    obs.mailSent(senderAccount.isEmpty() ? senderIp : (senderAccount + " (" + senderIp + ")"), recipient, filename);
                 }
+                log("Đã lưu email tới '" + recipient + "' từ " + (senderAccount.isEmpty() ? "Client" : senderAccount)
+                        + " (IP: " + senderIp + ") -> File: " + filename);
                 yield MailProtocol.ok(request.id(), List.of(filename));
             }
-            case MailProtocol.CMD_LOGIN, MailProtocol.CMD_LIST -> {
-                requireFields(fields, 2);
-                var page = storage.listMail(fields.get(0), fields.get(1));
+            case MailProtocol.CMD_LOGIN -> {
+                if (fields.isEmpty()) {
+                    throw new IllegalArgumentException("Chưa nhập tài khoản.");
+                }
+                String acc = fields.get(0);
+                String pass = "";
+                String after = "";
+
+                if (fields.size() == 2) {
+                    String f1 = fields.get(1);
+                    if (f1.equals("new_email.txt") || f1.startsWith("mail_")) {
+                        after = f1;
+                    } else {
+                        pass = f1;
+                    }
+                } else if (fields.size() >= 3) {
+                    pass = fields.get(1);
+                    after = fields.get(2);
+                }
+
+                if (!pass.isEmpty()) {
+                    storage.verifyPassword(acc, pass);
+                } else if (!storage.accountExists(acc)) {
+                    throw new MailStorage.MailException("ACCOUNT_NOT_FOUND", "Account không tồn tại.");
+                }
+
+                String normAccount = MailStorage.accountName(acc);
+                String clientIp = packet.getAddress().getHostAddress();
+                activeClients.put(normAccount, new ServerModels.ActiveClient(
+                        normAccount, normAccount, clientIp, packet.getSocketAddress(), System.currentTimeMillis()
+                ));
+                for (ServerObserver obs : observers) {
+                    obs.clientConnected(normAccount, normAccount, clientIp, packet.getSocketAddress().toString());
+                }
+                log("Client đăng nhập thành công: " + normAccount + " (IP: " + clientIp + ")");
+
+                var page = storage.listMail(normAccount, after);
+                List<String> payload = new ArrayList<>();
+                payload.add(page.account());
+                payload.add(Boolean.toString(page.hasMore()));
+                payload.addAll(page.filenames());
+                yield MailProtocol.ok(request.id(), payload);
+            }
+            case MailProtocol.CMD_LIST -> {
+                if (fields.isEmpty()) {
+                    throw new IllegalArgumentException("Chưa nhập tài khoản.");
+                }
+                String acc = fields.get(0);
+                String after = fields.size() >= 3 ? fields.get(2) : (fields.size() >= 2 ? fields.get(1) : "");
+                var page = storage.listMail(acc, after);
                 List<String> payload = new ArrayList<>();
                 payload.add(page.account());
                 payload.add(Boolean.toString(page.hasMore()));
@@ -265,63 +322,11 @@ public final class MailServer implements AutoCloseable {
                 yield MailProtocol.ok(request.id(), filename, content);
             }
             case MailProtocol.CMD_JOIN_REQ -> {
-                if (fields.size() < 3) {
-                    throw new IllegalArgumentException("Số trường dữ liệu không đúng.");
-                }
-                String type;
-                String name;
-                String rawAccount;
-                String clientIp;
-                if (fields.size() >= 4) {
-                    type = fields.get(0).trim().toUpperCase();
-                    name = fields.get(1).trim();
-                    rawAccount = fields.get(2).trim();
-                    clientIp = fields.get(3).trim();
-                } else {
-                    type = "CREATE_OR_LOGIN";
-                    name = fields.get(0).trim();
-                    rawAccount = fields.get(1).trim();
-                    clientIp = fields.get(2).trim();
-                }
-
-                if (name.isBlank()) {
-                    throw new IllegalArgumentException("Tên người dùng không được để trống.");
-                }
-                String normAccount = MailStorage.accountName(rawAccount);
-
-                if ("CREATE".equals(type) && storage.accountExists(normAccount)) {
-                    throw new MailStorage.MailException("ACCOUNT_EXISTS", "Account '" + normAccount + "' đã tồn tại trên Server. Vui lòng bấm Đăng nhập.");
-                }
-                if ("LOGIN".equals(type) && !storage.accountExists(normAccount)) {
-                    throw new MailStorage.MailException("ACCOUNT_NOT_FOUND", "Account '" + normAccount + "' chưa tồn tại trên Server. Vui lòng bấm Tạo Account mới.");
-                }
-
-                String requestId = request.id();
-                ServerModels.PendingRequest pending = new ServerModels.PendingRequest(
-                        requestId, type, name, normAccount, clientIp, packet.getSocketAddress(), System.currentTimeMillis()
-                );
-                pendingRequests.put(requestId, pending);
-                approvalDecisions.put(requestId, new ServerModels.ApprovalDecision(
-                        ServerModels.ApprovalState.PENDING, normAccount, name, null
-                ));
-
-                for (ServerObserver obs : observers) {
-                    obs.clientRequested(requestId, type, name, normAccount, clientIp, packet.getSocketAddress().toString());
-                }
-
-                yield MailProtocol.ok(request.id(), "PENDING", requestId);
+                String acc = fields.size() >= 2 ? fields.get(1) : fields.get(0);
+                yield MailProtocol.ok(request.id(), "APPROVED", acc, acc);
             }
             case MailProtocol.CMD_CHECK_JOIN -> {
-                requireFields(fields, 1);
-                String requestId = fields.get(0);
-                ServerModels.ApprovalDecision decision = approvalDecisions.get(requestId);
-                if (decision == null || decision.state() == ServerModels.ApprovalState.PENDING) {
-                    yield MailProtocol.ok(request.id(), "PENDING");
-                } else if (decision.state() == ServerModels.ApprovalState.APPROVED) {
-                    yield MailProtocol.ok(request.id(), "APPROVED", decision.account(), decision.name());
-                } else {
-                    yield MailProtocol.ok(request.id(), "REJECTED", decision.reason() != null ? decision.reason() : "Từ chối.");
-                }
+                yield MailProtocol.ok(request.id(), "APPROVED");
             }
             case MailProtocol.CMD_CLIENTS_LIST -> {
                 List<String> list = new ArrayList<>();

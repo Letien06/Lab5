@@ -31,7 +31,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 /**
- * Giao diện chính của Client sau khi được Admin phê duyệt (phong cách chat-message).
+ * Giao diện chính của Client (phong cách chat-message).
  * Font chữ to, sắc nét, tương phản cao, hỗ trợ đổi Chế độ Sáng/Tối linh hoạt.
  */
 public final class MailChatFrame extends JFrame {
@@ -66,7 +66,7 @@ public final class MailChatFrame extends JFrame {
     private final Timer autoRefreshTimer;
 
     public MailChatFrame(String username, String account, String clientIp, String serverEndpoint, MailClient client) {
-        super("VKU Mail & Chat — " + username + " (" + account + ")");
+        super("VKU Mail & Chat — " + (username.equals(account) ? account : (username + " (" + account + ")")));
         this.username = username;
         this.account = account;
         this.clientIp = clientIp;
@@ -135,9 +135,9 @@ public final class MailChatFrame extends JFrame {
         profileDetails.setLayout(new javax.swing.BoxLayout(profileDetails, javax.swing.BoxLayout.Y_AXIS));
 
         JLabel nameLbl = MailTheme.heading(username, 16);
-        JLabel accLbl = MailTheme.muted("Mail: " + account, 13);
+        JLabel accLbl = MailTheme.muted("Tài khoản: " + account, 13);
         JLabel ipLbl = MailTheme.muted("IP: " + clientIp, 12);
-        JLabel statusBadge = MailTheme.fixedLabel("● Đã duyệt · Đang hoạt động", 12, MailTheme.ONLINE, true);
+        JLabel statusBadge = MailTheme.fixedLabel("● Đang trực tuyến", 12, MailTheme.ONLINE, true);
 
         profileDetails.add(nameLbl);
         profileDetails.add(javax.swing.Box.createVerticalStrut(2));
@@ -351,7 +351,7 @@ public final class MailChatFrame extends JFrame {
 
         Thread t = new Thread(() -> {
             try {
-                String filename = client.sendMail(recipient, body);
+                String filename = client.sendMail(recipient, body, account);
                 SwingUtilities.invokeLater(() -> {
                     btnSend.setEnabled(true);
                     lblComposerStatus.setText("Đã gửi email thành công tới '" + recipient + "' (File: " + filename + ")");

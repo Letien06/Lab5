@@ -66,8 +66,9 @@ public final class MailIntegrationTest {
 
             String filename = client.sendMail("bob", original);
             expectedNames.add(filename);
-            check(Files.readString(root.resolve("bob").resolve(filename), StandardCharsets.UTF_8).equals(original),
-                    "Noi dung email tieng Viet/xuong dong phai giu nguyen");
+            String saved = Files.readString(root.resolve("bob").resolve(filename), StandardCharsets.UTF_8);
+            check(saved.contains(original) && saved.contains("[IP người gửi: 127.0.0.1"),
+                    "Noi dung email phai ghi kem IP nguoi gui va giu nguyen tieng Viet/xuong dong");
             check(!Files.exists(root.resolve("alice").resolve(filename)), "Thu phai nam o nguoi nhan");
             String second = client.sendMail("bob", "Email thứ hai");
             expectedNames.add(second);
@@ -121,38 +122,41 @@ public final class MailIntegrationTest {
             System.out.println("PASS: du lieu ton tai sau restart va SEND replay khong tao trung");
         }
 
-        // Kiem tra co che Server Admin phe duyet Client va doc email (readMail)
+        // Kiem tra co che dang nhap truc tiep voi tai khoan/mat khau, ghi nhan IP nguoi gui va doc email (readMail)
         try (var running = new RunningServer(root); var client = running.client()) {
-            // 1. Client gui yeu cau tham gia
-            String reqId = client.requestJoin("Le Cao Son Tien", "sontien", "192.168.1.15");
-            check(reqId != null && !reqId.isBlank(), "Phai co requestId");
-            var statusBefore = client.checkJoinStatus(reqId);
-            check("PENDING".equals(statusBefore.status()), "Trang thai ban dau phai la PENDING");
+            // 1. Tao tai khoan moi co mat khau
+            String acc = client.createAccount("sontien", "pass123");
+            check("sontien".equals(acc), "Tao tai khoan moi thanh cong");
+            check(Files.exists(root.resolve("sontien/new_email.txt")), "Server phai tao file new_email.txt");
 
-            // 2. Server Admin phe duyet
-            running.server.approveClient(reqId);
-            var statusAfter = client.checkJoinStatus(reqId);
-            check("APPROVED".equals(statusAfter.status()), "Trang thai sau khi Admin duyet phai la APPROVED");
-            check("sontien".equals(statusAfter.account()), "Account phai la sontien");
-            check(Files.exists(root.resolve("sontien/new_email.txt")), "Admin duyet phai tao thu muc va new_email.txt");
-
-            // 3. Doc noi dung email qua readMail
+            // 2. Doc noi dung email chao mung qua readMail
             String welcomeRead = client.readMail("sontien", "new_email.txt");
             check(welcomeRead.equals(MailStorage.WELCOME), "Noi dung new_email.txt qua readMail phai dung nguyen van");
 
-            // 4. Gui email va doc lai
-            String sentFile = client.sendMail("sontien", "Tin nhan kiem thu tu chat!");
-            String sentRead = client.readMail("sontien", sentFile);
-            check(sentRead.equals("Tin nhan kiem thu tu chat!"), "Noi dung email gui phai doc dung");
+            // 3. Dang nhap truc tiep (khong can duyet) voi dung mat khau
+            var mailbox = client.login("sontien", "pass123");
+            check(mailbox.account().equals("sontien"), "Dang nhap thanh cong truc tiep vao mailbox");
+            check(mailbox.filenames().contains("new_email.txt"), "Hop thu phai co new_email.txt");
+            check(!mailbox.filenames().contains(".password"), "Hop thu khong duoc chua file an .password");
 
-            // 5. Test Admin tu choi
-            String reqIdReject = client.requestJoin("Hacker", "hacker", "10.0.0.1");
-            running.server.rejectClient(reqIdReject, "IP khong hop le");
-            var statusReject = client.checkJoinStatus(reqIdReject);
-            check("REJECTED".equals(statusReject.status()), "Trang thai phai la REJECTED");
-            check("IP khong hop le".equals(statusReject.reason()), "Ly do tu choi phai dung");
+            // 4. Thu dang nhap sai mat khau
+            expectError("WRONG_PASSWORD", () -> client.login("sontien", "sai_mat_khau"));
+
+            // 5. Gui email va kiem tra file tren disk co ghi nhan IP nguoi gui
+            String sentFile = client.sendMail("sontien", "Tin nhan kiem thu tu chat!", "sontien");
+            String sentRead = client.readMail("sontien", sentFile);
+            check(sentRead.contains("Tin nhan kiem thu tu chat!")
+                    && sentRead.contains("[IP người gửi: 127.0.0.1 | Người gửi: sontien]"),
+                    "Noi dung email phai ghi nhan day du IP va ten tai khoan nguoi gui");
+
+            // 6. Kiem tra danh sach client online
+            var onlineList = client.listActiveClients();
+            check(onlineList.stream().anyMatch(c -> c.account().equals("sontien")), "Client phai xuat hien trong danh sach online");
+
+            // 7. Ngat ket noi
+            client.disconnect("sontien");
         }
-        System.out.println("PASS: co che Server Admin phe duyet/tu choi client va doc email");
+        System.out.println("PASS: co che dang nhap truc tiep (tai khoan/mat khau), ghi nhan IP nguoi gui va doc email");
 
         testTimeoutAndRetry();
         System.out.println("ALL TESTS PASSED — data: " + root);

@@ -16,7 +16,6 @@ import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import java.awt.BorderLayout;
 import java.awt.Color;
-import java.awt.Component;
 import java.awt.Desktop;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
@@ -27,17 +26,14 @@ import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.List;
 
 /**
- * Giao diện Quản trị viên (UI Admin) cho Mail Server:
- * - Font chữ to, sắc nét, tương phản cao trên FlatLaf.
- * - Danh sách Yêu cầu chờ phê duyệt (phân biệt Tạo account mới vs Đăng nhập).
- * - Nút "Chấp nhận" và "Từ chối" từng client hoặc tất cả.
- * - Danh sách Client đang hoạt động với khả năng ngắt kết nối.
- * - Server Log thời gian thực.
- * - Hỗ trợ nút đổi Chế độ Sáng/Tối linh hoạt.
+ * Giao diện Quản trị viên (Admin Dashboard) cho Mail Server:
+ * - Hiển thị cổng UDP, IP lắng nghe, số client online, số tài khoản, số email lưu trữ.
+ * - Danh sách Client đang online với khả năng ngắt kết nối.
+ * - Danh sách Dữ liệu Mail trên đĩa với nút mở thư mục trực tiếp.
+ * - Server Log thời gian thực (ghi rõ IP người gửi khi có email/chat).
+ * - Nút chuyển đổi Sáng/Tối linh hoạt.
  */
 public final class ServerAdminFrame extends JFrame implements ServerObserver {
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm:ss");
@@ -46,19 +42,12 @@ public final class ServerAdminFrame extends JFrame implements ServerObserver {
     private final JLabel lblStatus = MailTheme.muted("Đang khởi động...", 13);
     private final JLabel lblPort = MailTheme.heading("-", 28);
     private final JLabel lblActiveClients = MailTheme.heading("0", 28);
-    private final JLabel lblPending = MailTheme.fixedLabel("0", 28, MailTheme.WARNING, true);
+    private final JLabel lblTotalAccounts = MailTheme.heading("0", 28);
     private final JLabel lblTotalMails = MailTheme.heading("0", 28);
-
-    // Bảng Yêu cầu chờ duyệt
-    private final DefaultTableModel pendingModel = new DefaultTableModel(
-            new Object[]{"Mã yêu cầu", "Hành động", "Tên Client", "Địa chỉ Mail", "IP Client", "Cổng mạng", "Thời gian"}, 0) {
-        @Override public boolean isCellEditable(int r, int c) { return false; }
-    };
-    private final JTable tblPending = new JTable(pendingModel);
 
     // Bảng Client đang hoạt động
     private final DefaultTableModel activeModel = new DefaultTableModel(
-            new Object[]{"Tên Client", "Địa chỉ Mail", "IP Client", "Địa chỉ Socket", "Thời điểm vào", "Trạng thái"}, 0) {
+            new Object[]{"Tài khoản", "Địa chỉ IP", "Địa chỉ Socket", "Thời điểm vào", "Trạng thái"}, 0) {
         @Override public boolean isCellEditable(int r, int c) { return false; }
     };
     private final JTable tblActive = new JTable(activeModel);
@@ -77,8 +66,8 @@ public final class ServerAdminFrame extends JFrame implements ServerObserver {
         super("VKU UDP Mail Server — Admin Dashboard");
         this.server = server;
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
-        setMinimumSize(new Dimension(1060, 700));
-        setSize(1160, 740);
+        setMinimumSize(new Dimension(1060, 680));
+        setSize(1160, 720);
         setLocationRelativeTo(null);
         setContentPane(buildUi());
 
@@ -120,10 +109,9 @@ public final class ServerAdminFrame extends JFrame implements ServerObserver {
         center.setOpaque(false);
         center.add(buildMetricsPanel(), BorderLayout.NORTH);
 
-        // Tabs bên trái (Pending, Active, Storage)
+        // Tabs bên trái (Active, Storage)
         tabs.setFont(MailTheme.font(Font.BOLD, 14));
         tabs.removeAll();
-        tabs.addTab("Yêu cầu chờ duyệt (" + pendingModel.getRowCount() + ")", buildPendingPanel());
         tabs.addTab("Client đang hoạt động (0)", buildActivePanel());
         tabs.addTab("Dữ liệu Mail trên đĩa (0)", buildStoragePanel());
 
@@ -131,7 +119,7 @@ public final class ServerAdminFrame extends JFrame implements ServerObserver {
         JPanel logPanel = buildLogPanel();
 
         JSplitPane split = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, tabs, logPanel);
-        split.setResizeWeight(0.62);
+        split.setResizeWeight(0.60);
         split.setBorder(null);
         split.setOpaque(false);
 
@@ -158,7 +146,7 @@ public final class ServerAdminFrame extends JFrame implements ServerObserver {
         titleBox.setLayout(new javax.swing.BoxLayout(titleBox, javax.swing.BoxLayout.Y_AXIS));
 
         JLabel title = MailTheme.heading("VKU Mail Server — Admin Dashboard", 24);
-        JLabel subtitle = MailTheme.muted("Bảng điều khiển máy chủ · Quản lý và phê duyệt Client tham gia hệ thống", 13);
+        JLabel subtitle = MailTheme.muted("Bảng điều khiển máy chủ · Quản lý kết nối Client và dữ liệu Mail", 13);
         titleBox.add(title);
         titleBox.add(javax.swing.Box.createVerticalStrut(4));
         titleBox.add(subtitle);
@@ -187,8 +175,8 @@ public final class ServerAdminFrame extends JFrame implements ServerObserver {
         JButton btnStop = MailTheme.dangerButton("Dừng Server");
         btnStop.addActionListener(e -> {
             server.close();
-            lblStatus.setText("Server đã dừng.");
-            lblStatus.setForeground(MailTheme.DANGER);
+            dispose();
+            System.exit(0);
         });
 
         actions.add(btnTheme);
@@ -203,8 +191,8 @@ public final class ServerAdminFrame extends JFrame implements ServerObserver {
         JPanel panel = new JPanel(new GridLayout(1, 4, 12, 0));
         panel.setOpaque(false);
         panel.add(metricCard("CỔNG UDP", lblPort));
-        panel.add(metricCard("CLIENT ĐANG HOẠT ĐỘNG", lblActiveClients));
-        panel.add(metricCard("YÊU CẦU CHỜ DUYỆT", lblPending));
+        panel.add(metricCard("CLIENT ĐANG ONLINE", lblActiveClients));
+        panel.add(metricCard("TỔNG TÀI KHOẢN", lblTotalAccounts));
         panel.add(metricCard("TỔNG MAIL ĐÃ LƯU", lblTotalMails));
         return panel;
     }
@@ -218,75 +206,18 @@ public final class ServerAdminFrame extends JFrame implements ServerObserver {
         return card;
     }
 
-    private JPanel buildPendingPanel() {
-        JPanel panel = new JPanel(new BorderLayout(0, 10));
-        panel.setBorder(MailTheme.padding(12, 12, 12, 12));
-
-        setupTable(tblPending);
-        if (tblPending.getColumnCount() >= 7) {
-            tblPending.getColumnModel().getColumn(0).setPreferredWidth(90);
-            tblPending.getColumnModel().getColumn(1).setPreferredWidth(130);
-            tblPending.getColumnModel().getColumn(2).setPreferredWidth(140);
-            tblPending.getColumnModel().getColumn(3).setPreferredWidth(120);
-            tblPending.getColumnModel().getColumn(4).setPreferredWidth(120);
-            tblPending.getColumnModel().getColumn(5).setPreferredWidth(150);
-            tblPending.getColumnModel().getColumn(6).setPreferredWidth(80);
-        }
-
-        JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
-        toolbar.setOpaque(false);
-
-        JButton btnApprove = MailTheme.successButton("Chấp nhận Client");
-        btnApprove.setFont(MailTheme.font(Font.BOLD, 13));
-        btnApprove.setToolTipText("Chấp nhận client đang chọn để cấp quyền hoạt động và mở hộp thư");
-        btnApprove.addActionListener(e -> {
-            int row = tblPending.getSelectedRow();
-            if (row < 0) {
-                JOptionPane.showMessageDialog(this, "Vui lòng chọn một yêu cầu trong danh sách để duyệt.", "Thông báo", JOptionPane.INFORMATION_MESSAGE);
-                return;
-            }
-            String reqId = (String) pendingModel.getValueAt(row, 0);
-            server.approveClient(reqId);
-        });
-
-        JButton btnReject = MailTheme.dangerButton("Từ chối");
-        btnReject.setFont(MailTheme.font(Font.BOLD, 13));
-        btnReject.setToolTipText("Từ chối yêu cầu tham gia của client");
-        btnReject.addActionListener(e -> {
-            int row = tblPending.getSelectedRow();
-            if (row < 0) {
-                JOptionPane.showMessageDialog(this, "Vui lòng chọn một yêu cầu để từ chối.", "Thông báo", JOptionPane.INFORMATION_MESSAGE);
-                return;
-            }
-            String reqId = (String) pendingModel.getValueAt(row, 0);
-            String reason = JOptionPane.showInputDialog(this, "Nhập lý do từ chối (tùy chọn):", "Admin từ chối yêu cầu.");
-            server.rejectClient(reqId, reason != null && !reason.isBlank() ? reason : "Admin đã từ chối yêu cầu.");
-        });
-
-        JButton btnApproveAll = MailTheme.primaryButton("Chấp nhận tất cả");
-        btnApproveAll.setFont(MailTheme.font(Font.BOLD, 13));
-        btnApproveAll.addActionListener(e -> {
-            List<String> ids = new ArrayList<>();
-            for (int i = 0; i < pendingModel.getRowCount(); i++) {
-                ids.add((String) pendingModel.getValueAt(i, 0));
-            }
-            ids.forEach(server::approveClient);
-        });
-
-        toolbar.add(btnApprove);
-        toolbar.add(btnReject);
-        toolbar.add(btnApproveAll);
-
-        panel.add(new JScrollPane(tblPending), BorderLayout.CENTER);
-        panel.add(toolbar, BorderLayout.SOUTH);
-        return panel;
-    }
-
     private JPanel buildActivePanel() {
         JPanel panel = new JPanel(new BorderLayout(0, 10));
         panel.setBorder(MailTheme.padding(12, 12, 12, 12));
 
         setupTable(tblActive);
+        if (tblActive.getColumnCount() >= 5) {
+            tblActive.getColumnModel().getColumn(0).setPreferredWidth(120);
+            tblActive.getColumnModel().getColumn(1).setPreferredWidth(110);
+            tblActive.getColumnModel().getColumn(2).setPreferredWidth(160);
+            tblActive.getColumnModel().getColumn(3).setPreferredWidth(90);
+            tblActive.getColumnModel().getColumn(4).setPreferredWidth(110);
+        }
 
         JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
         toolbar.setOpaque(false);
@@ -296,10 +227,10 @@ public final class ServerAdminFrame extends JFrame implements ServerObserver {
         btnKick.addActionListener(e -> {
             int row = tblActive.getSelectedRow();
             if (row < 0) {
-                JOptionPane.showMessageDialog(this, "Vui lòng chọn client để ngắt kết nối.", "Thông báo", JOptionPane.INFORMATION_MESSAGE);
+                JOptionPane.showMessageDialog(this, "Vui lòng chọn một client để ngắt kết nối.", "Thông báo", JOptionPane.INFORMATION_MESSAGE);
                 return;
             }
-            String account = (String) activeModel.getValueAt(row, 1);
+            String account = (String) activeModel.getValueAt(row, 0);
             server.disconnectClient(account);
         });
 
@@ -363,7 +294,6 @@ public final class ServerAdminFrame extends JFrame implements ServerObserver {
         table.setFont(MailTheme.font(Font.PLAIN, 13));
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         table.getTableHeader().setFont(MailTheme.font(Font.BOLD, 13));
-
         DefaultTableCellRenderer renderer = new DefaultTableCellRenderer();
         renderer.setHorizontalAlignment(SwingConstants.LEFT);
         for (int i = 0; i < table.getColumnCount(); i++) {
@@ -387,16 +317,16 @@ public final class ServerAdminFrame extends JFrame implements ServerObserver {
                     });
                 } catch (Exception ignored) { }
             }
+            lblTotalAccounts.setText(String.valueOf(storage.countAccounts()));
             lblTotalMails.setText(String.valueOf(storage.countMails()));
             updateTabTitles();
         });
     }
 
     private void updateTabTitles() {
-        if (tabs != null && tabs.getTabCount() >= 3) {
-            tabs.setTitleAt(0, "Yêu cầu chờ duyệt (" + pendingModel.getRowCount() + ")");
-            tabs.setTitleAt(1, "Client đang hoạt động (" + activeModel.getRowCount() + ")");
-            tabs.setTitleAt(2, "Dữ liệu Mail trên đĩa (" + storageModel.getRowCount() + ")");
+        if (tabs != null && tabs.getTabCount() >= 2) {
+            tabs.setTitleAt(0, "Client đang hoạt động (" + activeModel.getRowCount() + ")");
+            tabs.setTitleAt(1, "Dữ liệu Mail trên đĩa (" + storageModel.getRowCount() + ")");
         }
     }
 
@@ -427,53 +357,17 @@ public final class ServerAdminFrame extends JFrame implements ServerObserver {
 
     @Override
     public void clientRequested(String requestId, String type, String name, String account, String clientIp, String remoteAddress) {
-        SwingUtilities.invokeLater(() -> {
-            String timeStr = LocalTime.now().format(TIME_FMT);
-            String actionDesc;
-            if ("CREATE".equals(type)) {
-                actionDesc = "Tạo account mới";
-            } else if ("LOGIN".equals(type)) {
-                actionDesc = "Đăng nhập";
-            } else {
-                actionDesc = "Tham gia";
-            }
-
-            pendingModel.addRow(new Object[]{requestId, actionDesc, name, account, clientIp, remoteAddress, timeStr});
-            lblPending.setText(String.valueOf(pendingModel.getRowCount()));
-            updateTabTitles();
-            appendLog("YÊU CẦU MỚI: Client '" + name + "' xin " + actionDesc + " (mail: " + account + ", IP: " + clientIp + ")");
-        });
+        // Tự động xử lý, không cần chờ admin
     }
 
     @Override
     public void clientApproved(String requestId, String name, String account, String clientIp) {
-        SwingUtilities.invokeLater(() -> {
-            for (int i = 0; i < pendingModel.getRowCount(); i++) {
-                if (pendingModel.getValueAt(i, 0).equals(requestId)) {
-                    pendingModel.removeRow(i);
-                    break;
-                }
-            }
-            lblPending.setText(String.valueOf(pendingModel.getRowCount()));
-            updateTabTitles();
-            appendLog("ADMIN ĐÃ CHẤP NHẬN client '" + name + "' (" + account + ") vào hoạt động!");
-            refreshStorageData();
-        });
+        // Không dùng
     }
 
     @Override
     public void clientRejected(String requestId, String name, String account, String reason) {
-        SwingUtilities.invokeLater(() -> {
-            for (int i = 0; i < pendingModel.getRowCount(); i++) {
-                if (pendingModel.getValueAt(i, 0).equals(requestId)) {
-                    pendingModel.removeRow(i);
-                    break;
-                }
-            }
-            lblPending.setText(String.valueOf(pendingModel.getRowCount()));
-            updateTabTitles();
-            appendLog("ADMIN ĐÃ TỪ CHỐI client '" + name + "' (" + account + "). Lý do: " + reason);
-        });
+        // Không dùng
     }
 
     @Override
@@ -481,18 +375,18 @@ public final class ServerAdminFrame extends JFrame implements ServerObserver {
         SwingUtilities.invokeLater(() -> {
             boolean found = false;
             for (int i = 0; i < activeModel.getRowCount(); i++) {
-                if (activeModel.getValueAt(i, 1).equals(account)) {
+                if (activeModel.getValueAt(i, 0).equals(account)) {
                     found = true;
                     break;
                 }
             }
             if (!found) {
                 String timeStr = LocalTime.now().format(TIME_FMT);
-                activeModel.addRow(new Object[]{name, account, clientIp, remoteAddress, timeStr, "Đang hoạt động"});
+                activeModel.addRow(new Object[]{account, clientIp, remoteAddress, timeStr, "Đang online"});
             }
             lblActiveClients.setText(String.valueOf(activeModel.getRowCount()));
             updateTabTitles();
-            appendLog("Client '" + name + "' (" + account + ") đã vào trạng thái HOẠT ĐỘNG.");
+            appendLog("Client '" + account + "' (IP: " + clientIp + ") đã ĐĂNG NHẬP thành công.");
         });
     }
 
@@ -500,7 +394,7 @@ public final class ServerAdminFrame extends JFrame implements ServerObserver {
     public void clientDisconnected(String account, String reason) {
         SwingUtilities.invokeLater(() -> {
             for (int i = 0; i < activeModel.getRowCount(); i++) {
-                if (activeModel.getValueAt(i, 1).equals(account)) {
+                if (activeModel.getValueAt(i, 0).equals(account)) {
                     activeModel.removeRow(i);
                     break;
                 }
@@ -514,14 +408,9 @@ public final class ServerAdminFrame extends JFrame implements ServerObserver {
     @Override
     public void mailSent(String sender, String recipient, String filename) {
         SwingUtilities.invokeLater(() -> {
-            appendLog("GỬI EMAIL: " + (sender.isBlank() ? "Client" : sender) + " -> " + recipient + " (file: " + filename + ")");
+            appendLog("GỬI EMAIL: " + sender + " -> '" + recipient + "' (File: " + filename + ")");
             refreshStorageData();
         });
-    }
-
-    @Override
-    public void serverLog(String message) {
-        appendLog(message);
     }
 
     @Override
@@ -531,5 +420,10 @@ public final class ServerAdminFrame extends JFrame implements ServerObserver {
             lblStatus.setForeground(MailTheme.DANGER);
             appendLog("Server đã dừng.");
         });
+    }
+
+    @Override
+    public void serverLog(String message) {
+        appendLog(message);
     }
 }

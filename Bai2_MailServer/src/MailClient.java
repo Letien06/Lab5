@@ -97,15 +97,29 @@ public final class MailClient implements AutoCloseable {
         }
     }
 
-    public String createAccount(String account) throws IOException {
-        return oneField(exchange(MailProtocol.request(MailProtocol.CMD_CREATE, account)));
+    public String createAccount(String account, String password) throws IOException {
+        List<String> fields = (password != null && !password.isBlank())
+                ? List.of(account, password)
+                : List.of(account);
+        return oneField(exchange(new MailProtocol.Message(MailProtocol.CMD_CREATE, java.util.UUID.randomUUID().toString(), fields)));
     }
 
-    public String sendMail(String recipient, String body) throws IOException {
+    public String createAccount(String account) throws IOException {
+        return createAccount(account, "");
+    }
+
+    public String sendMail(String recipient, String body, String senderAccount) throws IOException {
         if (body.isBlank() || body.getBytes(StandardCharsets.UTF_8).length > MailProtocol.MAX_BODY_BYTES) {
             throw new IllegalArgumentException("Nhập nội dung email, tối đa 16000 byte UTF-8.");
         }
-        return oneField(exchange(MailProtocol.request(MailProtocol.CMD_SEND, recipient, body)));
+        List<String> fields = (senderAccount != null && !senderAccount.isBlank())
+                ? List.of(recipient, body, senderAccount)
+                : List.of(recipient, body);
+        return oneField(exchange(new MailProtocol.Message(MailProtocol.CMD_SEND, java.util.UUID.randomUUID().toString(), fields)));
+    }
+
+    public String sendMail(String recipient, String body) throws IOException {
+        return sendMail(recipient, body, "");
     }
 
     /**
@@ -119,13 +133,20 @@ public final class MailClient implements AutoCloseable {
         return res.get(1);
     }
 
-    public Mailbox login(String account) throws IOException {
+    public Mailbox login(String account, String password) throws IOException {
         List<String> names = new ArrayList<>();
         String after = "";
         String normalizedAccount = null;
         boolean more;
         do {
-            List<String> page = exchange(MailProtocol.request(after.isEmpty() ? MailProtocol.CMD_LOGIN : MailProtocol.CMD_LIST, account, after));
+            List<String> fields = new ArrayList<>();
+            fields.add(account);
+            fields.add(password != null ? password : "");
+            fields.add(after);
+
+            List<String> page = exchange(new MailProtocol.Message(
+                    after.isEmpty() ? MailProtocol.CMD_LOGIN : MailProtocol.CMD_LIST,
+                    java.util.UUID.randomUUID().toString(), fields));
             if (page.size() < 2 || !(page.get(1).equals("true") || page.get(1).equals("false"))) {
                 throw new IOException("Danh sách thư không đúng định dạng.");
             }
@@ -147,6 +168,10 @@ public final class MailClient implements AutoCloseable {
             }
         } while (more);
         return new Mailbox(normalizedAccount, List.copyOf(names));
+    }
+
+    public Mailbox login(String account) throws IOException {
+        return login(account, "");
     }
 
     /**

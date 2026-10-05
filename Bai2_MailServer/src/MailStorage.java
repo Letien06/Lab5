@@ -5,7 +5,6 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
@@ -68,7 +67,7 @@ public final class MailStorage {
         }
     }
 
-    public String createAccount(String value) throws IOException, MailException {
+    public String createAccount(String value, String password) throws IOException, MailException {
         String account = accountName(value);
         Path directory = root.resolve(account);
         try {
@@ -79,9 +78,14 @@ public final class MailStorage {
         try {
             Files.writeString(directory.resolve("new_email.txt"), WELCOME, StandardCharsets.UTF_8,
                     StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+            if (password != null && !password.isBlank()) {
+                Files.writeString(directory.resolve(".password"), password.trim(), StandardCharsets.UTF_8,
+                        StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+            }
         } catch (IOException ex) {
-            // Chỉ xóa thư mục vừa tạo nếu còn rỗng, không xóa đệ quy dữ liệu.
             try {
+                Files.deleteIfExists(directory.resolve(".password"));
+                Files.deleteIfExists(directory.resolve("new_email.txt"));
                 Files.delete(directory);
             } catch (IOException cleanupError) {
                 ex.addSuppressed(cleanupError);
@@ -91,7 +95,32 @@ public final class MailStorage {
         return account;
     }
 
-    public String sendMail(String recipient, String body, String requestId) throws IOException, MailException {
+    public String createAccount(String value) throws IOException, MailException {
+        return createAccount(value, "");
+    }
+
+    public boolean verifyPassword(String value, String password) throws MailException, IOException {
+        String account = accountName(value);
+        Path directory = requireAccount(account);
+        Path passFile = directory.resolve(".password");
+        if (!Files.exists(passFile, LinkOption.NOFOLLOW_LINKS)) {
+            // Nếu chưa có file password, lưu lại nếu người dùng nhập
+            if (password != null && !password.isBlank()) {
+                Files.writeString(passFile, password.trim(), StandardCharsets.UTF_8,
+                        StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+            }
+            return true;
+        }
+        String stored = Files.readString(passFile, StandardCharsets.UTF_8).trim();
+        String input = password == null ? "" : password.trim();
+        if (!stored.isEmpty() && !stored.equals(input)) {
+            throw new MailException("WRONG_PASSWORD", "Mật khẩu không chính xác.");
+        }
+        return true;
+    }
+
+    public String sendMail(String recipient, String body, String senderIp, String senderAccount, String requestId)
+            throws IOException, MailException {
         if (!requestId.matches("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")) {
             throw new MailException("INVALID_REQUEST", "Mã yêu cầu không hợp lệ.");
         }
@@ -102,19 +131,34 @@ public final class MailStorage {
         if (body.getBytes(StandardCharsets.UTF_8).length > MailProtocol.MAX_BODY_BYTES) {
             throw new MailException("MAIL_TOO_LARGE", "Nội dung email tối đa 16000 byte UTF-8.");
         }
-        // Mã yêu cầu tạo tên duy nhất. Gửi lại cùng yêu cầu không tạo email thứ hai.
+
+        // Lưu nội dung trên đĩa: kèm IP người gửi và nội dung vừa chat
+        String fileContent;
+        if (senderIp != null && !senderIp.isBlank()) {
+            String header = (senderAccount != null && !senderAccount.isBlank())
+                    ? "[IP người gửi: " + senderIp + " | Người gửi: " + senderAccount + "]\n"
+                    : "[IP người gửi: " + senderIp + "]\n";
+            fileContent = body.startsWith("[IP người gửi:") ? body : (header + body);
+        } else {
+            fileContent = body;
+        }
+
         String filename = "mail_" + requestId + ".txt";
         Path file = directory.resolve(filename);
         try {
-            Files.writeString(file, body, StandardCharsets.UTF_8,
+            Files.writeString(file, fileContent, StandardCharsets.UTF_8,
                     StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
         } catch (FileAlreadyExistsException ex) {
             if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)
-                    || !Files.readString(file, StandardCharsets.UTF_8).equals(body)) {
+                    || !Files.readString(file, StandardCharsets.UTF_8).equals(fileContent)) {
                 throw new MailException("REQUEST_CONFLICT", "Mã yêu cầu đã được dùng cho nội dung khác.");
             }
         }
         return filename;
+    }
+
+    public String sendMail(String recipient, String body, String requestId) throws IOException, MailException {
+        return sendMail(recipient, body, null, null, requestId);
     }
 
     public MailPage listMail(String value, String after) throws IOException, MailException {
@@ -122,7 +166,8 @@ public final class MailStorage {
         Path directory = requireAccount(account);
         List<String> names;
         try (var entries = Files.list(directory)) {
-            names = entries.filter(path -> Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS))
+            names = entries.filter(path -> Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)
+                            && !path.getFileName().toString().startsWith("."))
                     .map(path -> path.getFileName().toString()).sorted()
                     .filter(name -> after.isEmpty() || name.compareTo(after) > 0)
                     .limit(MailProtocol.PAGE_SIZE + 1L).toList();
@@ -159,7 +204,8 @@ public final class MailStorage {
             List<Path> dirs = stream.filter(p -> Files.isDirectory(p, LinkOption.NOFOLLOW_LINKS)).toList();
             for (Path dir : dirs) {
                 try (var mailStream = Files.list(dir)) {
-                    count += (int) mailStream.filter(p -> Files.isRegularFile(p, LinkOption.NOFOLLOW_LINKS)).count();
+                    count += (int) mailStream.filter(p -> Files.isRegularFile(p, LinkOption.NOFOLLOW_LINKS)
+                            && !p.getFileName().toString().startsWith(".")).count();
                 } catch (IOException ignored) { }
             }
         } catch (IOException e) {
