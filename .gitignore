@@ -1,0 +1,24 @@
+# Build output
+**/out/
+**/bin/
+**/build/
+**/target/
+
+# Class files
+*.class
+**/*.class
+
+# Local runtime data & logs
+**/mail_data/
+*.log
+**/*.log
+
+# IDE & OS files
+.idea/
+*.iml
+.vscode/
+.settings/
+.project
+.classpath
+.DS_Store
+Thumbs.db
