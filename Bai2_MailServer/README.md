@@ -1,168 +1,144 @@
-# Lab 5 — Bài 2: Mail Server qua UDP
+# Lab 5 — Bài 2: Mail Server qua UDP (Giao diện Chat-Message & Admin Dashboard)
 
-Project riêng với Bài 1, dùng **Java 17**, thư viện chuẩn Java và giao diện Swing. Không cần Maven hoặc database.
+Dự án được xây dựng theo yêu cầu môn Lập trình mạng (Lab 5 - Bài 2), được nâng cấp toàn diện với giao diện đồ họa hiện đại phong cách **chat-message**, tích hợp **UI Admin** trên Server và cơ chế **kiểm soát/phê duyệt Client** trước khi cho vào hoạt động.
 
-## Đúng ba chức năng của đề
+Dự án viết bằng **Java 17**, dùng thư viện chuẩn Java (Java Swing + UDP Socket), không phụ thuộc Maven bên ngoài, biên dịch và chạy trực tiếp.
 
-| Chức năng | Server thực hiện |
-|---|---|
-| Tạo account | Tạo thư mục của account và file `new_email.txt` |
-| Gửi email | Xác định account nhận, tạo file mới chứa nguyên nội dung email trong thư mục người nhận |
-| Đăng nhập | Kiểm tra account tồn tại, gửi tất cả tên file trong thư mục về client |
+---
 
-Nội dung `new_email.txt` giữ nguyên câu trong đề, không thêm dấu ngoặc kép:
+## 🌟 Tính năng nổi bật & Đáp ứng yêu cầu
 
-```text
-Thank you for using this service. we hope that you will feel comfortabl........
-```
+### 1. Phía Server (UI Admin Dashboard)
+- **Bảng điều khiển Admin trực quan:** Hỗ trợ cả **Chế độ Tối (Dark)** và **Chế độ Sáng (Light)** với nút **[Đổi nền Sáng/Tối]**, chữ to sắc nét, tương phản cao, khử răng cưa chữ antialiasing trên mọi màn hình.
+  - Cổng UDP đang lắng nghe (mặc định: `2346`).
+  - Số lượng Client đang hoạt động.
+  - Số lượng yêu cầu đang chờ phê duyệt (màu cam Amber nổi bật).
+  - Tổng số file email đã lưu trên đĩa.
+- **Cơ chế phê duyệt Client (Admin Approval):**
+  - Khi một Client gửi yêu cầu tham gia, thông tin (**Họ tên, Mail/Account, Địa chỉ IP Client, Port, Thời gian**) sẽ lập tức xuất hiện trong bảng *Yêu cầu chờ duyệt*.
+  - Admin có toàn quyền bấm:
+    - **[Chấp nhận Client]**: Cấp quyền hoạt động, tự động tạo thư mục và file `new_email.txt` trên Server, thông báo tức thì qua UDP cho Client mở giao diện chat.
+    - **[Từ chối]**: Từ chối yêu cầu, gửi thông báo kèm lý do cho Client.
+    - **[Chấp nhận tất cả]**: Duyệt hàng loạt nhanh chóng.
+- **Quản lý Client đang hoạt động:** Theo dõi danh sách Client online, hỗ trợ nút *Ngắt kết nối Client*.
+- **Quản lý Lưu trữ:** Hiển thị danh sách các thư mục account và số file email, hỗ trợ nút **"Mở thư mục mail_data"** trực tiếp trong File Explorer của Windows.
+- **Server Log Real-time:** Ghi lại mọi sự kiện gói tin, yêu cầu tham gia, quyết định duyệt, email gửi đi theo mốc thời gian `[HH:mm:ss]`.
 
-Đề chưa quy định mật khẩu nên đăng nhập ở bài này là truy cập account bằng tên, **chưa có xác thực bằng mật khẩu**. Client hiển thị danh sách **tên file**; chức năng đọc/xóa thư không nằm trong phạm vi bài. Gửi thư không bắt buộc đăng nhập trước, vì đề không quy định người gửi hoặc phiên đăng nhập.
+### 2. Phía Client (Form Kết nối & Chat-Message)
+- **Khung nhập thông tin Client:**
+  - **Họ và tên của bạn** (Display Name).
+  - **Địa chỉ Mail / Account** (Hỗ trợ cả dạng `sontien` hoặc `sontien@vku.udn.vn`).
+  - **Địa chỉ IP của Client** (Tự động nhận diện IP LAN mạng nội bộ của máy, cho phép chỉnh sửa).
+  - Cấu hình IP Server và Cổng UDP (mặc định `127.0.0.1:2346`).
+- **Màn hình chờ phê duyệt:**
+  - Sau khi bấm *Tham gia hệ thống*, Client hiển thị trạng thái chờ Admin duyệt với thanh tiến trình và thông tin đã gửi.
+  - Khi Admin bấm **Chấp nhận**, Client lập tức chuyển vào giao diện chính.
+  - Nếu Admin bấm **Từ chối**, Client nhận được thông báo lý do và quay lại form nhập.
+- **Giao diện Chat-Message hiện đại sau khi vào hoạt động:**
+  - **Cột trái:**
+    - Profile người dùng: Avatar chữ cái đầu với màu sắc riêng, Họ tên, Mail, IP Client, huy hiệu *● Đã duyệt · Đang hoạt động*.
+    - Nút **[Đổi nền]** chuyển đổi Sáng/Tối tức thì và nút **[Thoát]**.
+    - Hộp thư đến (Inbox): Danh sách các file email (`new_email.txt` gắn nhãn `[SYS]`, các `mail_*.txt` gắn nhãn `[MAIL]`), nút *Làm mới*.
+    - Danh sách thành viên Online: Bấm vào bất kỳ ai để tự động điền người nhận thư.
+  - **Khung phải:**
+    - Khung xem nội dung email (Mail Reader): Hiển thị nội dung thư dạng thẻ tin nhắn sạch đẹp. Khi click `new_email.txt`, hiển thị nguyên văn thư chào mừng của hệ thống.
+    - Khung soạn & gửi email (Mail Composer): Nhập account người nhận, nội dung email, phím tắt `Ctrl + Enter` để gửi nhanh qua UDP.
+    - Cơ chế tự động làm mới hộp thư ngầm mỗi 3.5 giây giúp thư mới gửi tới xuất hiện tức thì!
 
-## Chạy trên Windows
+### 3. Đảm bảo 100% yêu cầu đề bài Lab 5 Bài 2
+- Giao thức UDP: Dùng `DatagramSocket`, `DatagramPacket`.
+- Khi tạo account mới / được Admin duyệt: Server tạo thư mục tương ứng trong `mail_data`, đồng thời tạo file `new_email.txt` với nội dung nguyên văn:
+  ```text
+  Thank you for using this service. we hope that you will feel comfortabl........
+  ```
+- Khi gửi email: Server nhận email, xác định account người nhận, tạo file `mail_<UUID>.txt` trong thư mục account đó với nội dung chính là email gửi.
+- Khi đăng nhập/mở hộp thư: Server gửi toàn bộ danh sách tên file trong thư mục của account về Client.
+- Hỗ trợ thêm lệnh `READ`: Cho phép đọc nội dung text của file email để hiển thị lên form chat.
 
-Mở PowerShell trong folder `Bai2_MailServer`, cần `java` và `javac` trong PATH.
+---
 
-**Terminal 1 — server:**
+## 🚀 Hướng dẫn Chạy chương trình
 
-```powershell
+Cần cài đặt **JDK 17+** (`java` và `javac` có sẵn trong biến môi trường PATH).
+
+### Cách 1: Sử dụng file Command Prompt (`.cmd`)
+
+**1. Khởi động Server (Giao diện Admin Dashboard):**
+```cmd
 .\run-server.cmd
 ```
+*(Nếu muốn chạy server ở chế độ terminal không mở GUI, thêm cờ: `.\run-server.cmd 2346 mail_data --headless`)*
 
-**Terminal 2 — client:**
-
-```powershell
+**2. Khởi động Client (Giao diện Chat-Message):**
+```cmd
 .\run-client.cmd
 ```
+*(Có thể mở nhiều cửa sổ Client khác nhau để mô phỏng nhiều người dùng chat/gửi email qua lại).*
 
-Cổng mặc định **2346** được chọn cho Bài 2 vì đề không chỉ định cổng. Bài 1 vẫn dùng 2345 nên hai bài có thể chạy đồng thời.
+### Cách 2: Sử dụng PowerShell (`.ps1`)
 
-Client mặc định dùng `127.0.0.1:2346`. Nếu chạy hai máy trong LAN, nhập IPv4 của máy server tại client; máy server cần cho phép UDP vào cổng 2346 trong firewall.
-
-## Demo từng bước
-
-1. Chạy server rồi mở client.
-2. Nhập account `alice`, nhấn **Tạo account**. Server tạo `mail_data/alice/new_email.txt`.
-3. Nhấn **Đăng nhập**. Danh sách có `new_email.txt`.
-4. Nhập account `bob`, nhấn **Tạo account** rồi **Đăng nhập**.
-5. Ở phần soạn thư, nhập người nhận `bob` và nội dung có thể gồm tiếng Việt, nhiều dòng; nhấn **Gửi email**.
-6. Nhấn **Làm mới danh sách** của bob. Có file mail mới cùng `new_email.txt`.
-7. Mở file mail ở máy server để kiểm tra nội dung đã lưu đúng.
-8. Tắt server bằng Ctrl+C, chạy lại và đăng nhập bob: các file vẫn còn.
-
-Có thể mở hai client để demo: client thứ nhất tạo alice/gửi tới bob; client thứ hai đăng nhập bob rồi làm mới danh sách. Danh sách hiển thị account đã đăng nhập ở dòng nhãn; sửa ô Account chỉ chọn account cho lần đăng nhập tiếp theo.
-
-## Dữ liệu và quy tắc
-
-Server tạo thư mục `mail_data` trong folder project khi chạy bằng script:
-
-```text
-mail_data/
-  alice/
-    new_email.txt
-  bob/
-    new_email.txt
-    mail_<UUID>.txt
-    mail_<UUID-khác>.txt
-```
-
-- Account được chuyển về chữ thường và bỏ khoảng trắng đầu/cuối, dài 3–32 ký tự, bắt đầu bằng chữ `a-z`, sau đó dùng chữ, số hoặc `_`.
-- Không cho phép dấu phân cách đường dẫn, `..` hoặc tên thiết bị Windows như `con`, `nul`, `com1`.
-- Tạo account trùng: báo lỗi, giữ nguyên thư cũ.
-- Người nhận hoặc account đăng nhập chưa tồn tại: báo lỗi; không tự tạo account.
-- Nội dung thư được lưu UTF-8, giữ nguyên xuống dòng và ký tự đặc biệt. Nội dung rỗng/toàn khoảng trắng bị từ chối.
-- Mỗi thư có tên riêng dựa trên UUID của yêu cầu gửi. File chỉ chứa **nội dung email**, không tự thêm header, người gửi hoặc tiêu đề.
-- Thư tối đa **16000 byte UTF-8**, không phải 16000 ký tự tiếng Việt. Đây là giới hạn thiết kế cho bài lab, không phải giới hạn thầy ghi trong đề.
-- Bài dùng UDP trên mạng nội bộ. Gói lớn có thể bị phân mảnh IP; client có timeout/gửi lại, chưa xây dựng cơ chế chia nội dung thư thành các gói nhỏ.
-- Đăng nhập lấy danh sách theo thứ tự tên file, mỗi trang tối đa 40 tên. Client tự lấy tiếp các trang và hiển thị danh sách hoàn chỉnh. Khi có thư mới trong lúc đang lấy danh sách, nhấn Làm mới để lấy danh sách mới.
-
-## Cấu trúc code
-
-```text
-src/
-  MailProtocol.java       Định dạng thông điệp và giới hạn UDP
-  MailStorage.java        Tạo account, lưu thư, liệt kê tên file
-  MailServer.java         Nhận UDP, xử lý thao tác, trả kết quả
-  MailClient.java         Gửi/nhận, timeout/retry, lấy đủ các trang
-  MailClientFrame.java    Giao diện Swing
-  MailClientConsole.java  Console tùy chọn
-tests/
-  MailIntegrationTest.java
-build.cmd
-run-server.cmd
-run-client.cmd
-test.cmd
-```
-
-Mạng chạy trên luồng nền, thay đổi giao diện thực hiện trên Swing EDT. Đóng cửa sổ sẽ đóng socket đang chạy và dừng worker. Khi đổi IP/cổng, danh sách của server cũ được xóa.
-
-## Giao thức UDP
-
-Mỗi datagram tối đa 24000 byte, cấu trúc:
-
-```text
-COMMAND|requestId|Base64(field1)|Base64(field2)|...
-```
-
-Các trường mã hóa từ UTF-8 sang Base64 để nội dung email chứa `|`, xuống dòng hoặc tiếng Việt không làm sai cấu trúc. Base64 là cách đóng gói, không phải mã hóa bảo mật.
-
-| Command | Các trường yêu cầu | Các trường trong phản hồi OK |
-|---|---|---|
-| CREATE | account | account đã chuẩn hóa |
-| SEND | account người nhận, nội dung | tên file đã lưu |
-| LOGIN / LIST | account, tên cuối trang trước (rỗng ở trang đầu) | account, hasMore, các tên file |
-
-Phản hồi có command `OK` hoặc `ERROR`, kèm requestId của yêu cầu. Lỗi gồm mã lỗi và thông báo. Gói tin không thể đọc được trả `INVALID_PACKET` với UUID bằng 0 vì server chưa xác định được mã yêu cầu.
-
-Client chờ tối đa 800 ms mỗi lần, thử tối đa 3 lần với **cùng requestId**. Server ghi nhớ 256 phản hồi gần nhất trong tối đa một phút để trả lại kết quả khi nhận gói lặp. Riêng SEND dùng requestId làm tên file, nên gửi lại cùng yêu cầu sau khi server khởi động lại cũng không tạo thư trùng. Client bỏ qua phản hồi không khớp requestId.
-
-Nếu cả ba lần đều không nhận được xác nhận, chưa thể khẳng định server chưa lưu thư. Kiểm tra danh sách của người nhận trước khi nhấn Gửi lại, vì lần nhấn mới tạo requestId mới.
-
-## Console và IDE
-
-Khi server đang chạy:
-
+**Terminal 1 — Server:**
 ```powershell
-.\run-client.cmd --console create alice
-.\run-client.cmd --console create bob
-.\run-client.cmd --console send bob "Hello, this is a test email."
-.\run-client.cmd --console login bob
+.\run-server.ps1
 ```
 
-Với tiếng Việt hoặc nội dung nhiều dòng, nên dùng GUI hoặc file UTF-8 vì JDK 17 trên Windows có thể làm mất dấu trong tham số dòng lệnh. Ví dụ PowerShell tạo file UTF-8 không BOM rồi gửi:
-
+**Terminal 2 & 3 — Client:**
 ```powershell
-[System.IO.File]::WriteAllText((Join-Path (Get-Location) 'email.txt'), "Xin chào thầy!`nEmail tiếng Việt.", [System.Text.UTF8Encoding]::new($false))
-.\run-client.cmd --console send-file bob email.txt
+.\run-client.ps1
 ```
 
-IP và cổng là hai tham số tùy chọn ở cuối, ví dụ:
+---
 
-```powershell
-.\run-client.cmd --console login bob 192.168.1.10 2346
-```
+## 🧪 Chạy Kiểm thử Tự động (Integration Tests)
 
-Chạy server với cổng/thư mục khác:
+Chương trình đi kèm bộ test tích hợp toàn diện, kiểm tra:
+1. Tạo account, thư mục đĩa và nguyên văn nội dung `new_email.txt`.
+2. Kiểm tra tài khoản trùng, sai quy cách, tài khoản không tồn tại.
+3. Gửi email tiếng Việt UTF-8, kiểm tra chống ghi đè và tính toàn vẹn dữ liệu.
+4. Cơ chế **Server Admin phê duyệt Client** (`JOIN_REQ` -> `PENDING` -> `APPROVED`).
+5. Cơ chế **Server Admin từ chối Client** (`REJECTED` kèm lý do).
+6. Đọc nội dung email qua UDP (`READ`).
+7. Cơ chế Timeout và gửi lại gói tin khi mạng chập chờn.
 
-```powershell
-.\run-server.cmd 3456 "D:\MailLabData"
-```
-
-Chạy trong IntelliJ/Eclipse: chọn JDK 17, đặt `src` là source root, chạy `main` của `MailServer` và `MailClientFrame`. Với server, đặt working directory là folder project để dữ liệu nằm ở `mail_data` của project. Không truyền tham số để mở GUI.
-
-## Kiểm tra
-
-```powershell
+Để chạy test:
+```cmd
 .\test.cmd
 ```
+Kết quả mong đợi:
+```text
+PASS: tao account, welcome, login, account trung/khong ton tai/ten sai
+PASS: luu dung nguoi nhan/noi dung, khong ghi de, replay va du lieu sai
+PASS: nhieu client, nhieu trang, du tat ca ten file va khong lan account
+PASS: du lieu ton tai sau restart va SEND replay khong tao trung
+PASS: co che Server Admin phe duyet/tu choi client va doc email
+PASS: timeout va retry cung request ID khi mat phan hoi
+ALL TESTS PASSED
+```
 
-Test dùng server ở cổng tạm và thư mục dữ liệu riêng trong `out`, không đụng đến `mail_data`:
+---
 
-- Tạo account, nội dung welcome chính xác, tên account sai/trùng.
-- Đăng nhập/gửi thư đến account không tồn tại.
-- Lưu đúng người nhận, giữ nguyên tiếng Việt/xuống dòng, không ghi đè.
-- Yêu cầu trùng, requestId xung đột, thư rỗng/quá lớn, gói tin sai.
-- Danh sách nhiều hơn một trang, nhiều client, không lẫn hộp thư.
-- Khởi động lại server và gửi lại cùng yêu cầu không tạo thư thứ hai.
-- Timeout và gửi lại cùng requestId khi mất phản hồi.
+## 📁 Cấu trúc Mã nguồn
 
-Dữ liệu test, file biên dịch và `mail_data` được bỏ qua trong `.gitignore`.
+```text
+Lab5/Bai2_MailServer/
+├── src/
+│   ├── MailProtocol.java       # Định nghĩa khuôn dạng gói UDP, command và Base64 UTF-8
+│   ├── MailStorage.java        # Quản lý đọc/ghi file, thư mục account trên máy Server
+│   ├── ServerModels.java       # Model: PendingRequest, ActiveClient, ApprovalDecision
+│   ├── ServerObserver.java     # Observer interface kết nối sự kiện Server với UI Admin
+│   ├── MailServer.java         # Core UDP Socket Server, xử lý gói tin và logic duyệt
+│   ├── ServerAdminFrame.java   # Giao diện UI Admin Dashboard (Thống kê, Duyệt, Log)
+│   ├── MailClient.java         # UDP Client SDK (gửi/nhận, join request, read mail)
+│   ├── MailTheme.java          # Bộ phong cách giao diện Dark Theme hiện đại
+│   ├── ClientLoginForm.java    # Khung nhập Tên, Mail, IP Client & Màn hình chờ duyệt
+│   ├── MailChatFrame.java      # Giao diện chính Client sau khi duyệt (Chat-Message UI)
+│   ├── MailClientFrame.java    # Điểm khởi chạy Client chính
+│   └── MailClientConsole.java  # Client dòng lệnh (Console) tùy chọn
+├── tests/
+│   └── MailIntegrationTest.java# Bộ kiểm thử UDP tự động
+├── mail_data/                  # Thư mục dữ liệu mail thực tế trên Server
+├── build.cmd                   # Script biên dịch
+├── run-server.cmd / .ps1       # Script khởi động Server
+├── run-client.cmd / .ps1       # Script khởi động Client
+└── test.cmd                    # Script chạy kiểm thử
+```

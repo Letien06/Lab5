@@ -120,6 +120,40 @@ public final class MailIntegrationTest {
             expectError("ACCOUNT_EXISTS", () -> client.createAccount("bob"));
             System.out.println("PASS: du lieu ton tai sau restart va SEND replay khong tao trung");
         }
+
+        // Kiem tra co che Server Admin phe duyet Client va doc email (readMail)
+        try (var running = new RunningServer(root); var client = running.client()) {
+            // 1. Client gui yeu cau tham gia
+            String reqId = client.requestJoin("Le Cao Son Tien", "sontien", "192.168.1.15");
+            check(reqId != null && !reqId.isBlank(), "Phai co requestId");
+            var statusBefore = client.checkJoinStatus(reqId);
+            check("PENDING".equals(statusBefore.status()), "Trang thai ban dau phai la PENDING");
+
+            // 2. Server Admin phe duyet
+            running.server.approveClient(reqId);
+            var statusAfter = client.checkJoinStatus(reqId);
+            check("APPROVED".equals(statusAfter.status()), "Trang thai sau khi Admin duyet phai la APPROVED");
+            check("sontien".equals(statusAfter.account()), "Account phai la sontien");
+            check(Files.exists(root.resolve("sontien/new_email.txt")), "Admin duyet phai tao thu muc va new_email.txt");
+
+            // 3. Doc noi dung email qua readMail
+            String welcomeRead = client.readMail("sontien", "new_email.txt");
+            check(welcomeRead.equals(MailStorage.WELCOME), "Noi dung new_email.txt qua readMail phai dung nguyen van");
+
+            // 4. Gui email va doc lai
+            String sentFile = client.sendMail("sontien", "Tin nhan kiem thu tu chat!");
+            String sentRead = client.readMail("sontien", sentFile);
+            check(sentRead.equals("Tin nhan kiem thu tu chat!"), "Noi dung email gui phai doc dung");
+
+            // 5. Test Admin tu choi
+            String reqIdReject = client.requestJoin("Hacker", "hacker", "10.0.0.1");
+            running.server.rejectClient(reqIdReject, "IP khong hop le");
+            var statusReject = client.checkJoinStatus(reqIdReject);
+            check("REJECTED".equals(statusReject.status()), "Trang thai phai la REJECTED");
+            check("IP khong hop le".equals(statusReject.reason()), "Ly do tu choi phai dung");
+        }
+        System.out.println("PASS: co che Server Admin phe duyet/tu choi client va doc email");
+
         testTimeoutAndRetry();
         System.out.println("ALL TESTS PASSED — data: " + root);
     }

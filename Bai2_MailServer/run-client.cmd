@@ -3,5 +3,5 @@ setlocal
 cd /d "%~dp0"
 call build.cmd
 if errorlevel 1 exit /b 1
-java -Dfile.encoding=UTF-8 -cp out MailClientFrame %*
+java -Dfile.encoding=UTF-8 -cp "out;lib\*" MailClientFrame %*
 exit /b %errorlevel%

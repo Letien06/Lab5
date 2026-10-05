@@ -14,6 +14,17 @@ public final class MailProtocol {
     public static final int MAX_BODY_BYTES = 16000;
     public static final int PAGE_SIZE = 40;
 
+    // Các lệnh giao thức
+    public static final String CMD_CREATE = "CREATE";
+    public static final String CMD_SEND = "SEND";
+    public static final String CMD_LOGIN = "LOGIN";
+    public static final String CMD_LIST = "LIST";
+    public static final String CMD_READ = "READ";
+    public static final String CMD_JOIN_REQ = "JOIN_REQ";
+    public static final String CMD_CHECK_JOIN = "CHECK_JOIN";
+    public static final String CMD_CLIENTS_LIST = "CLIENTS_LIST";
+    public static final String CMD_DISCONNECT = "DISCONNECT";
+
     private MailProtocol() { }
 
     public record Message(String command, String id, List<String> fields) {
@@ -28,6 +39,10 @@ public final class MailProtocol {
 
     public static Message ok(String id, List<String> fields) {
         return new Message("OK", id, fields);
+    }
+
+    public static Message ok(String id, String... fields) {
+        return new Message("OK", id, List.of(fields));
     }
 
     public static Message error(String id, String code, String detail) {

@@ -5,6 +5,8 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 
@@ -41,13 +43,29 @@ public final class MailStorage {
     }
 
     public static String accountName(String value) throws MailException {
+        if (value == null) {
+            throw new MailException("INVALID_ACCOUNT", "Account không được để trống.");
+        }
         String account = value.trim().toLowerCase(Locale.ROOT);
+        // Nếu người dùng nhập dạng email (vd: sontien@vku.udn.vn), lấy phần username
+        if (account.contains("@")) {
+            account = account.substring(0, account.indexOf('@')).trim();
+        }
         if (!account.matches("[a-z][a-z0-9_]{2,31}")
                 || account.matches("con|prn|aux|nul|com[1-9]|lpt[1-9]")) {
             throw new MailException("INVALID_ACCOUNT",
                     "Account gồm 3–32 ký tự: bắt đầu bằng chữ, dùng chữ không dấu, số hoặc _; không dùng tên hệ thống Windows.");
         }
         return account;
+    }
+
+    public boolean accountExists(String value) {
+        try {
+            String acc = accountName(value);
+            return Files.isDirectory(root.resolve(acc), LinkOption.NOFOLLOW_LINKS);
+        } catch (MailException ex) {
+            return false;
+        }
     }
 
     public String createAccount(String value) throws IOException, MailException {
@@ -112,6 +130,53 @@ public final class MailStorage {
         boolean hasMore = names.size() > MailProtocol.PAGE_SIZE;
         return new MailPage(account, hasMore,
                 hasMore ? names.subList(0, MailProtocol.PAGE_SIZE) : names);
+    }
+
+    public String readMail(String value, String filename) throws IOException, MailException {
+        String account = accountName(value);
+        Path directory = requireAccount(account);
+        if (filename == null || filename.isBlank() || filename.contains("/") || filename.contains("\\") || filename.contains("..")) {
+            throw new MailException("INVALID_FILENAME", "Tên file không hợp lệ.");
+        }
+        Path file = directory.resolve(filename).normalize();
+        if (!file.startsWith(directory) || !Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
+            throw new MailException("FILE_NOT_FOUND", "Không tìm thấy file email trong hộp thư: " + filename);
+        }
+        return Files.readString(file, StandardCharsets.UTF_8);
+    }
+
+    public int countAccounts() {
+        try (var stream = Files.list(root)) {
+            return (int) stream.filter(p -> Files.isDirectory(p, LinkOption.NOFOLLOW_LINKS)).count();
+        } catch (IOException e) {
+            return 0;
+        }
+    }
+
+    public int countMails() {
+        int count = 0;
+        try (var stream = Files.list(root)) {
+            List<Path> dirs = stream.filter(p -> Files.isDirectory(p, LinkOption.NOFOLLOW_LINKS)).toList();
+            for (Path dir : dirs) {
+                try (var mailStream = Files.list(dir)) {
+                    count += (int) mailStream.filter(p -> Files.isRegularFile(p, LinkOption.NOFOLLOW_LINKS)).count();
+                } catch (IOException ignored) { }
+            }
+        } catch (IOException e) {
+            return 0;
+        }
+        return count;
+    }
+
+    public List<String> listAllAccounts() {
+        try (var stream = Files.list(root)) {
+            return stream.filter(p -> Files.isDirectory(p, LinkOption.NOFOLLOW_LINKS))
+                    .map(p -> p.getFileName().toString())
+                    .sorted()
+                    .toList();
+        } catch (IOException e) {
+            return Collections.emptyList();
+        }
     }
 
     private Path requireAccount(String value) throws MailException {

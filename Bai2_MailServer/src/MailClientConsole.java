@@ -10,10 +10,25 @@ public final class MailClientConsole {
     public static void main(String[] args) {
         try {
             if (args.length < 2) {
-                throw new IllegalArgumentException("create/login <account> [host] [port]; send/send-file <recipient> <body/file> [host] [port]");
+                throw new IllegalArgumentException(
+                        "Cú pháp lệnh console:\n"
+                        + "  create <account> [host] [port]\n"
+                        + "  login <account> [host] [port]\n"
+                        + "  read <account> <filename> [host] [port]\n"
+                        + "  send <recipient> <body> [host] [port]\n"
+                        + "  send-file <recipient> <filepath> [host] [port]\n"
+                        + "  join <name> <account> <clientIp> [host] [port]");
             }
             String command = args[0];
-            int baseCount = command.equals("send") || command.equals("send-file") ? 3 : 2;
+            int baseCount;
+            if (command.equals("send") || command.equals("send-file") || command.equals("read")) {
+                baseCount = 3;
+            } else if (command.equals("join")) {
+                baseCount = 4;
+            } else {
+                baseCount = 2;
+            }
+
             if (args.length < baseCount || args.length > baseCount + 2) {
                 throw new IllegalArgumentException("Số tham số không đúng.");
             }
@@ -27,13 +42,32 @@ public final class MailClientConsole {
                         System.out.println("Account: " + mailbox.account() + " — " + mailbox.filenames().size() + " file");
                         mailbox.filenames().forEach(System.out::println);
                     }
+                    case "read" -> {
+                        System.out.println("Nội dung " + args[2] + " trong hộp thư " + args[1] + ":");
+                        System.out.println(client.readMail(args[1], args[2]));
+                    }
                     case "send" -> System.out.println("Đã lưu email: " + client.sendMail(args[1], args[2]));
                     case "send-file" -> System.out.println("Đã lưu email: " + client.sendMail(args[1],
                             Files.readString(Path.of(args[2]), StandardCharsets.UTF_8)));
-                    default -> throw new IllegalArgumentException("Thao tác phải là create, login, send hoặc send-file.");
+                    case "join" -> {
+                        String reqId = client.requestJoin(args[1], args[2], args[3]);
+                        System.out.println("Đã gửi yêu cầu tham gia (RequestId: " + reqId + "). Chờ Admin duyệt...");
+                        while (true) {
+                            Thread.sleep(1000);
+                            var status = client.checkJoinStatus(reqId);
+                            if ("APPROVED".equals(status.status())) {
+                                System.out.println("Admin ĐÃ CHẤP NHẬN! Account: " + status.account() + ", Tên: " + status.name());
+                                break;
+                            } else if ("REJECTED".equals(status.status())) {
+                                System.out.println("Admin ĐÃ TỪ CHỐI! Lý do: " + status.reason());
+                                break;
+                            }
+                        }
+                    }
+                    default -> throw new IllegalArgumentException("Thao tác phải là create, login, read, send, send-file hoặc join.");
                 }
             }
-        } catch (IOException | IllegalArgumentException ex) {
+        } catch (IOException | IllegalArgumentException | InterruptedException ex) {
             System.err.println("Lỗi: " + ex.getMessage());
             System.exit(1);
         }

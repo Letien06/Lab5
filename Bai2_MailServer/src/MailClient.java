@@ -3,11 +3,14 @@ import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.SocketTimeoutException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-/** Client UDP dùng được từ GUI, console và kiểm tra tích hợp. */
+/**
+ * Client UDP dùng được từ GUI (form chat-message), console và test tích hợp.
+ */
 public final class MailClient implements AutoCloseable {
     private final DatagramSocket socket;
     private final int timeoutMillis;
@@ -28,8 +31,12 @@ public final class MailClient implements AutoCloseable {
 
     public record Mailbox(String account, List<String> filenames) { }
 
+    public record JoinStatus(String status, String account, String name, String reason) { }
+
+    public record RemoteClient(String account, String name, String ip) { }
+
     public MailClient(String host, int port) throws IOException {
-        this(host, port, 800, 3);
+        this(host, port, 1000, 3);
     }
 
     public MailClient(String host, int port, int timeoutMillis, int attempts) throws IOException {
@@ -41,7 +48,7 @@ public final class MailClient implements AutoCloseable {
         this.attempts = attempts;
         socket = new DatagramSocket();
         try {
-            // UDP connect chọn server và lọc nguồn phản hồi, không bắt tay TCP.
+            // UDP connect chọn server và lọc nguồn phản hồi
             socket.connect(address, port);
         } catch (RuntimeException ex) {
             socket.close();
@@ -49,15 +56,67 @@ public final class MailClient implements AutoCloseable {
         }
     }
 
+    /**
+     * Gửi yêu cầu xin tham gia hệ thống tới Server:
+     * - type: "CREATE" (tạo mới) hoặc "LOGIN" (đăng nhập)
+     * - name: Tên người dùng
+     * - account: Địa chỉ mail/tài khoản
+     * - clientIp: Địa chỉ IP của client
+     * Trả về requestId để kiểm tra trạng thái phê duyệt từ Admin.
+     */
+    public String requestJoin(String type, String name, String account, String clientIp) throws IOException {
+        List<String> res = exchange(MailProtocol.request(MailProtocol.CMD_JOIN_REQ, type, name, account, clientIp));
+        if (res.size() < 2) {
+            throw new IOException("Phản hồi JOIN_REQ không hợp lệ.");
+        }
+        return res.get(1);
+    }
+
+    public String requestJoin(String name, String account, String clientIp) throws IOException {
+        return requestJoin("CREATE_OR_LOGIN", name, account, clientIp);
+    }
+
+    /**
+     * Kiểm tra xem Server Admin đã phê duyệt yêu cầu chưa.
+     */
+    public JoinStatus checkJoinStatus(String requestId) throws IOException {
+        List<String> res = exchange(MailProtocol.request(MailProtocol.CMD_CHECK_JOIN, requestId));
+        if (res.isEmpty()) {
+            throw new IOException("Phản hồi CHECK_JOIN rỗng.");
+        }
+        String status = res.get(0);
+        if ("APPROVED".equals(status)) {
+            String acc = res.size() > 1 ? res.get(1) : "";
+            String name = res.size() > 2 ? res.get(2) : "";
+            return new JoinStatus("APPROVED", acc, name, null);
+        } else if ("REJECTED".equals(status)) {
+            String reason = res.size() > 1 ? res.get(1) : "Admin đã từ chối.";
+            return new JoinStatus("REJECTED", null, null, reason);
+        } else {
+            return new JoinStatus("PENDING", null, null, null);
+        }
+    }
+
     public String createAccount(String account) throws IOException {
-        return oneField(exchange(MailProtocol.request("CREATE", account)));
+        return oneField(exchange(MailProtocol.request(MailProtocol.CMD_CREATE, account)));
     }
 
     public String sendMail(String recipient, String body) throws IOException {
-        if (body.isBlank() || body.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > MailProtocol.MAX_BODY_BYTES) {
+        if (body.isBlank() || body.getBytes(StandardCharsets.UTF_8).length > MailProtocol.MAX_BODY_BYTES) {
             throw new IllegalArgumentException("Nhập nội dung email, tối đa 16000 byte UTF-8.");
         }
-        return oneField(exchange(MailProtocol.request("SEND", recipient, body)));
+        return oneField(exchange(MailProtocol.request(MailProtocol.CMD_SEND, recipient, body)));
+    }
+
+    /**
+     * Đọc nội dung email từ server (bao gồm new_email.txt hoặc file thư gửi đến).
+     */
+    public String readMail(String account, String filename) throws IOException {
+        List<String> res = exchange(MailProtocol.request(MailProtocol.CMD_READ, account, filename));
+        if (res.size() < 2) {
+            throw new IOException("Dữ liệu đọc email không hợp lệ.");
+        }
+        return res.get(1);
     }
 
     public Mailbox login(String account) throws IOException {
@@ -66,7 +125,7 @@ public final class MailClient implements AutoCloseable {
         String normalizedAccount = null;
         boolean more;
         do {
-            List<String> page = exchange(MailProtocol.request(after.isEmpty() ? "LOGIN" : "LIST", account, after));
+            List<String> page = exchange(MailProtocol.request(after.isEmpty() ? MailProtocol.CMD_LOGIN : MailProtocol.CMD_LIST, account, after));
             if (page.size() < 2 || !(page.get(1).equals("true") || page.get(1).equals("false"))) {
                 throw new IOException("Danh sách thư không đúng định dạng.");
             }
@@ -88,6 +147,24 @@ public final class MailClient implements AutoCloseable {
             }
         } while (more);
         return new Mailbox(normalizedAccount, List.copyOf(names));
+    }
+
+    /**
+     * Lấy danh sách client đang hoạt động trên Server.
+     */
+    public List<RemoteClient> listActiveClients() throws IOException {
+        List<String> res = exchange(MailProtocol.request(MailProtocol.CMD_CLIENTS_LIST));
+        List<RemoteClient> clients = new ArrayList<>();
+        for (int i = 0; i + 2 < res.size(); i += 3) {
+            clients.add(new RemoteClient(res.get(i), res.get(i + 1), res.get(i + 2)));
+        }
+        return clients;
+    }
+
+    public void disconnect(String account) {
+        try {
+            exchange(MailProtocol.request(MailProtocol.CMD_DISCONNECT, account));
+        } catch (Exception ignored) { }
     }
 
     private static String oneField(List<String> fields) throws IOException {
@@ -132,8 +209,7 @@ public final class MailClient implements AutoCloseable {
                 }
             }
         }
-        throw new SocketTimeoutException("Không nhận được xác nhận sau " + attempts
-                + " lần gửi. Với thao tác gửi thư, hãy kiểm tra hộp thư người nhận trước khi gửi mới.");
+        throw new SocketTimeoutException("Không nhận được phản hồi sau " + attempts + " lần thử.");
     }
 
     @Override
